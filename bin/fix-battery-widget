@@ -1,0 +1,30 @@
+#!/bin/sh
+# Re-grant the Googlebook Batteries widget (Settings Services) access to Bluetooth devices.
+#
+# Usage: fix-battery-widget [IP:PORT]
+#   IP:PORT  The address shown under Settings > Developer options > Wireless debugging.
+#            Without it, the script uses the device that adb is already connected to.
+# Environment:
+#   ANDROID_USER  Android user ID to fix. Default: the current user ("am get-current-user").
+P=com.google.android.settings.intelligence
+if [ -n "$1" ]; then
+    T="$1"
+    timeout 20 adb connect "$T" >/dev/null || exit 1
+else
+    T=$(timeout 10 adb get-serialno 2>/dev/null)
+    if [ -z "$T" ] || [ "$T" = "unknown" ]; then
+        echo "No single connected adb device found." >&2
+        echo "Usage: fix-battery-widget IP:PORT   (from Settings > Developer options > Wireless debugging)" >&2
+        exit 1
+    fi
+fi
+U="${ANDROID_USER:-$(timeout 20 adb -s "$T" shell am get-current-user | tr -d '\r')}"
+case "$U" in
+    ''|*[!0-9]*) echo "Could not determine the Android user ID (got '$U'). Set ANDROID_USER." >&2; exit 1 ;;
+esac
+echo "Device $T, Android user $U"
+A="timeout 20 adb -s $T shell"
+$A pm grant --user "$U" $P android.permission.BLUETOOTH_CONNECT
+$A pm set-permission-flags --user "$U" $P android.permission.BLUETOOTH_CONNECT user-set user-fixed
+$A appops set --user "$U" $P AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore
+$A dumpsys package $P | grep -a "BLUETOOTH_CONNECT: granted"
